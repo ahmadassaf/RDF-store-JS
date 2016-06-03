@@ -19426,7 +19426,7 @@ Store.prototype.close = function(cb) {
 /**
  * Version of the store
  */
-Store.VERSION = "0.9.10";
+Store.VERSION = "0.9.9";
 
 /**
  * Create a new RDFStore instance that will be
@@ -24364,28 +24364,24 @@ Lexicon.prototype.clear = function(callback) {
     this.defaultGraphOid = 0;
     this.defaultGraphUri = "https://github.com/antoniogarrote/rdfstore-js#default_graph";
     this.defaultGraphUriTerm = {"token":"uri","prefix":null,"suffix":null,"value":this.defaultGraphUri};
-
     var transaction = that.db.transaction(["uris","literals","blanks"],"readwrite"), request;
-    var uris= transaction.objectStore("uris");
-    var literals = transaction.objectStore("literals");
-    var blanks = transaction.objectStore("blanks");
 
-    var k = function() {
+    async.seq(function(k){
+        request = transaction.objectStore("uris").clear();
+        request.onsuccess = function(){ k(); };
+        request.onerror = function(){ k(); };
+    }, function(k){
+        request = transaction.objectStore("literals").clear();
+        request.onsuccess = function(){ k(); };
+        request.onerror = function(){ k(); };
+    }, function(k){
+        request = transaction.objectStore("blanks").clear();
+        request.onsuccess = function(){ k(); };
+        request.onerror = function(){ k(); };
+    })(function(){
         if(callback != null)
             callback();
-    };
-
-    request = uris.clear();
-    request.onsuccess = function(){
-        request = literals.clear();
-        request.onsuccess = function(){
-            request = blanks.clear();
-            request.onsuccess = k;
-            request.onerror = k;
-        };
-        request.onerror = k;
-    };
-    request.onerror =k;
+    });
 };
 
 /**
@@ -24454,7 +24450,6 @@ Lexicon.prototype._unregisterTerm = function (kind, oid, callback) {
 module.exports = {
     Lexicon: Lexicon
 };
-
 },{"./btree":42,"./lexicon":46,"./utils":59}],50:[function(_dereq_,module,exports){
 
 // imports
@@ -30492,7 +30487,7 @@ registerIndexedDB = function(that) {
     }
 };
 
-guid = function() {
+function guid() {
     function s4() {
         return Math.floor((1 + Math.random()) * 0x10000)
             .toString(16)
@@ -30500,7 +30495,7 @@ guid = function() {
     }
     return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
         s4() + '-' + s4() + s4() + s4();
-};
+}
 
 hashTerm = function(term) {
     try {
