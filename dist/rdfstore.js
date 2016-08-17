@@ -17356,7 +17356,9 @@ AbstractQueryTree.prototype.bind = function(aqt, bindings) {
         aqt.lvalue = this.bind(aqt.lvalue, bindings);
         aqt.rvalue = this.bind(aqt.rvalue, bindings);
     } else if(aqt.kind === 'FILTER') {
-        aqt.filter = this._bindFilter(aqt.filter[i].value, bindings);
+        var that = this;
+        aqt.value = this.bind(aqt.value, bindings);
+        aqt.filter = aqt.filter.map(function(f) { return { token: 'filter', value: that._bindFilter(f.value, bindings) }; });
     } else if(aqt.kind === 'EMPTY_PATTERN') {
         // nothing
     } else {
@@ -19426,7 +19428,7 @@ Store.prototype.close = function(cb) {
 /**
  * Version of the store
  */
-Store.VERSION = "0.9.10";
+Store.VERSION = "0.9.15";
 
 /**
  * Create a new RDFStore instance that will be
@@ -20036,10 +20038,10 @@ var toTriples = function (input, graph, cb) {
                 } else if (term.type === 'IRI') {
                     return {'token': 'uri', 'value': term.value};
                 } else if (term.type === 'literal') {
-                    if (term.datatype !== null) {
-                        return {'literal': '"' + term.value + '"^^<' + term.datatype + ">"};
-                    } else if (term.language != null) {
+                    if (term.language != null) {
                         return {'literal': '"' + term.value + '"@' + term.language};
+                    } else if (term.datatype !== null) {
+                        return {'literal': '"' + term.value + '"^^<' + term.datatype + ">"};
                     } else {
                         return {'literal': '"' + term.value + '"'};
 
@@ -20100,8 +20102,6 @@ JSONLDParser.parser = {
 module.exports = {
     JSONLDParser: JSONLDParser
 };
-
-
 
 },{"jsonld":26}],46:[function(_dereq_,module,exports){
 var async = _dereq_('./utils');
@@ -20248,6 +20248,7 @@ Lexicon.prototype.resolveUri = function(uri,callback) {
         });
     }
 };
+
 
 /**
  * Returns the cost associated to the URI.
@@ -20580,7 +20581,7 @@ Lexicon.prototype._unregisterTerm = function (kind, oid, callback) {
                                 }) ;
                             })(function(){
                                 callback();
-                            })
+                            });
                         } else {
                             that.uris.insert(uri,[oid, counter - 1], function(){
                                 callback();
@@ -20638,6 +20639,7 @@ Lexicon.prototype._unregisterTerm = function (kind, oid, callback) {
 module.exports = {
     Lexicon: Lexicon
 };
+
 },{"./btree":42,"./utils":59}],47:[function(_dereq_,module,exports){
 var http = _dereq_("http");
 var https = _dereq_("https");
@@ -22817,7 +22819,9 @@ module.exports = (function() {
           regex.expressionType = 'regex';
           regex.text = e1;
           regex.pattern = e2;
-          regex.flags = eo[2];
+          if(eo != null) {
+            regex.flags = eo[2];
+          }
 
           return regex;
           },
@@ -22859,7 +22863,7 @@ module.exports = (function() {
           exp.token = 'expression';
           exp.expressionType = 'aggregate';
           exp.aggregateType = 'count';
-          exp.distinct = (d != "" ? 'DISTINCT' : d);
+          exp.distinct = ((d != "" && d != null) ? 'DISTINCT' : d);
           exp.expression = e;
 
           return exp;
@@ -22876,7 +22880,7 @@ module.exports = (function() {
               exp.token = 'expression';
               exp.expressionType = 'aggregate';
               exp.aggregateType = 'group_concat';
-              exp.distinct = (d != "" ? 'DISTINCT' : d);
+              exp.distinct = ((d != "" && d != null) ? 'DISTINCT' : d);
               exp.expression = e;
               exp.separator = s;
 
@@ -22892,7 +22896,7 @@ module.exports = (function() {
           exp.token = 'expression';
           exp.expressionType = 'aggregate';
           exp.aggregateType = 'sum';
-          exp.distinct = (d != "" ? 'DISTINCT' : d);
+          exp.distinct = ((d != "" && d != null) ? 'DISTINCT' : d);
           exp.expression = e;
 
           return exp;
@@ -22907,7 +22911,7 @@ module.exports = (function() {
           exp.token = 'expression';
           exp.expressionType = 'aggregate';
           exp.aggregateType = 'min';
-          exp.distinct = (d != "" ? 'DISTINCT' : d);
+          exp.distinct = ((d != "" && d != null) ? 'DISTINCT' : d);
           exp.expression = e;
 
           return exp;
@@ -22922,7 +22926,7 @@ module.exports = (function() {
           exp.token = 'expression'
           exp.expressionType = 'aggregate'
           exp.aggregateType = 'max'
-          exp.distinct = (d != "" ? 'DISTINCT' : d);
+          exp.distinct = ((d != "" && d != null) ? 'DISTINCT' : d);
           exp.expression = e
 
           return exp
@@ -22937,7 +22941,7 @@ module.exports = (function() {
           exp.token = 'expression'
           exp.expressionType = 'aggregate'
           exp.aggregateType = 'avg'
-          exp.distinct = (d != "" ? 'DISTINCT' : d);
+          exp.distinct = ((d != "" && d != null) ? 'DISTINCT' : d);
           exp.expression = e
 
           return exp
@@ -26187,110 +26191,114 @@ QueryEngine.prototype.executeAndBGP = function(projection, dataset, pattern, env
 QueryEngine.prototype.executeLEFT_JOIN = function(projection, dataset, patterns, env, callback) {
     var setQuery1 = patterns.lvalue;
     var setQuery2 = patterns.rvalue;
+    if(setQuery1.kind === "EMPTY_PATTERN") {
+        // LEFT JOIN ( Z | X) => X
+        this.executeSelectUnit(projection, dataset, setQuery2, env, callback);
+    } else {
+        var set1 = null;
+        var set2 = null;
+        var error = null;
 
-    var set1 = null;
-    var set2 = null;
-    var error = null;
+        var that = this;
+        var acum, duplicates;
 
-    var that = this;
-    var acum, duplicates;
-
-    async.seq(
-        function(k){
-            try {
-                that.executeSelectUnit(projection, dataset, setQuery1, env, function (result) {
-                    set1 = result;
-                    k();
-                });
-            } catch(e) {
-                error = e;
-                k();
-            }
-        },
-        function(k){
-            if(error != null) {
-                k();
-            } else {
+        async.seq(
+            function(k){
                 try {
-                    that.executeSelectUnit(projection, dataset, setQuery2, env, function (result) {
-                        set2 = result;
+                    that.executeSelectUnit(projection, dataset, setQuery1, env, function (result) {
+                        set1 = result;
                         k();
                     });
                 } catch(e) {
                     error = e;
                     k();
                 }
-            }
-        })(
-        function(){
-            if(error != null) {
-                callback(error);
-            } else {
-                var result = QueryPlan.leftOuterJoinBindings(set1, set2);
-                that.runBinds(patterns.binds, result, dataset, env, function(err, bindings){
-                    if(err != null) {
-                        throw(new BindExpressionError("Error processing bind expressions", patterns.binds, err));
-                    } else {
-                        QueryFilters.checkFilters(patterns, result, true, dataset, env, that, function(bindings){
-                            if(set1.length>1 && set2.length>1) {
-                                var vars = [];
-                                var vars1 = {};
-                                for(var p in set1[0]) {
-                                    vars1[p] = true;
-                                }
-                                for(p in set2[0]) {
-                                    if(vars1[p] != true) {
-                                        vars.push(p);
-                                    }
-                                }
-                                acum = [];
-                                duplicates = {};
-                                for(var i=0; i<bindings.length; i++) {
-                                    if(bindings[i]["__nullify__"] === true) {
-                                        for(var j=0; j<vars.length; j++) {
-                                            bindings[i]["bindings"][vars[j]] = null;
-                                        }
-                                        var idx = [];
-                                        var idxColl = [];
-                                        for(var p in bindings[i]["bindings"]) {
-                                            if(bindings[i]["bindings"][p] != null) {
-                                                idx.push(p+bindings[i]["bindings"][p]);
-                                                idx.sort();
-                                                idxColl.push(idx.join(""));
-                                            }
-                                        }
-                                        // reject duplicates -> (set union)
-                                        if(duplicates[idx.join("")]==null) {
-                                            for(j=0; j<idxColl.length; j++) {
-                                                //console.log(" - "+idxColl[j])
-                                                duplicates[idxColl[j]] = true;
-                                            }
-                                            ////duplicates[idx.join("")]= true
-                                            acum.push(bindings[i]["bindings"]);
-                                        }
-                                    } else {
-                                        acum.push(bindings[i]);
-                                        var idx = [];
-                                        var idxColl = [];
-                                        for(var p in bindings[i]) {
-                                            idx.push(p+bindings[i][p]);
-                                            idx.sort();
-                                            //console.log(idx.join("") + " -> ok");
-                                            duplicates[idx.join("")] = true;
-                                        }
-
-                                    }
-                                }
-
-                                callback(acum);
-                            } else {
-                                callback(bindings);
-                            }
+            },
+            function(k){
+                if(error != null) {
+                    k();
+                } else {
+                    try {
+                        that.executeSelectUnit(projection, dataset, setQuery2, env, function (result) {
+                            set2 = result;
+                            k();
                         });
+                    } catch(e) {
+                        error = e;
+                        k();
                     }
-                });
-            }
-        });
+                }
+            })(
+            function(){
+                if(error != null) {
+                    callback(error);
+                } else {
+                    var result = QueryPlan.leftOuterJoinBindings(set1, set2);
+                    that.runBinds(patterns.binds, result, dataset, env, function(err, bindings){
+                        if(err != null) {
+                            throw(new BindExpressionError("Error processing bind expressions", patterns.binds, err));
+                        } else {
+                            QueryFilters.checkFilters(patterns, result, true, dataset, env, that, function(bindings){
+                                if(set1.length>1 && set2.length>1) {
+                                    var vars = [];
+                                    var vars1 = {};
+                                    for(var p in set1[0]) {
+                                        vars1[p] = true;
+                                    }
+                                    for(p in set2[0]) {
+                                        if(vars1[p] != true) {
+                                            vars.push(p);
+                                        }
+                                    }
+                                    acum = [];
+                                    duplicates = {};
+                                    for(var i=0; i<bindings.length; i++) {
+                                        if(bindings[i]["__nullify__"] === true) {
+                                            for(var j=0; j<vars.length; j++) {
+                                                bindings[i]["bindings"][vars[j]] = null;
+                                            }
+                                            var idx = [];
+                                            var idxColl = [];
+                                            for(var p in bindings[i]["bindings"]) {
+                                                if(bindings[i]["bindings"][p] != null) {
+                                                    idx.push(p+bindings[i]["bindings"][p]);
+                                                    idx.sort();
+                                                    idxColl.push(idx.join(""));
+                                                }
+                                            }
+                                            // reject duplicates -> (set union)
+                                            if(duplicates[idx.join("")]==null) {
+                                                for(j=0; j<idxColl.length; j++) {
+                                                    //console.log(" - "+idxColl[j])
+                                                    duplicates[idxColl[j]] = true;
+                                                }
+                                                ////duplicates[idx.join("")]= true
+                                                acum.push(bindings[i]["bindings"]);
+                                            }
+                                        } else {
+                                            acum.push(bindings[i]);
+                                            var idx = [];
+                                            var idxColl = [];
+                                            for(var p in bindings[i]) {
+                                                idx.push(p+bindings[i][p]);
+                                                idx.sort();
+                                                //console.log(idx.join("") + " -> ok");
+                                                duplicates[idx.join("")] = true;
+                                            }
+
+                                        }
+                                    }
+
+                                    callback(acum);
+                                } else {
+                                    callback(bindings);
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+    }
 };
 
 QueryEngine.prototype.executeJOIN = function(projection, dataset, patterns, env, callback) {
@@ -26811,9 +26819,22 @@ QueryEngine.prototype._executeClearGraph = function(destinyGraph, queryEnv, call
                 var foundErrorDeleting = false;
                 async.eachSeries(graphs, function(graph,k){
                     if(!foundErrorDeleting) {
-                        that.execute("DELETE { GRAPH <"+graph+"> { ?s ?p ?o } } WHERE { GRAPH <"+graph+"> { ?s ?p ?o } }", function(success, results){
-                            foundErrorDeleting = !success;
-                            k();
+                        that.execute("DELETE { GRAPH <"+graph+"> { ?s ?p ?o } } WHERE { GRAPH <"+graph+"> { ?s ?p ?o } }", function(err, results){
+                            if(!err) {
+                                that.lexicon.resolveUri(graph, function(oid){
+                                    if(oid != -1) {
+                                        that.lexicon.knownGraphs.delete(oid, function(){
+                                            k();
+                                        });
+                                    } else {
+                                        foundErrorDeleting = "Cannot find graph "+graph+" to clear it";
+                                        k();
+                                    }
+                                });
+                            } else {
+                                foundErrorDeleting = err;
+                                k();
+                            }
                         });
                     } else {
                         k();
@@ -26943,7 +26964,6 @@ QueryFilters = {};
 var xmlSchema = "http://www.w3.org/2001/XMLSchema#";
 
 QueryFilters.checkFilters = function(pattern, bindings, nullifyErrors, dataset, queryEnv, queryEngine, callback) {
-
     var filters = [];
     if (pattern.filter && typeof(pattern.filter) !== 'function')
         filters = pattern.filter;
@@ -26951,24 +26971,104 @@ QueryFilters.checkFilters = function(pattern, bindings, nullifyErrors, dataset, 
     if(filters==null || filters.length === 0 || pattern.length != null) {
         return callback(bindings);
     }
-
-    async.eachSeries(filters, function(filter,k){
-        QueryFilters.run(filter.value, bindings, nullifyErrors, dataset, queryEnv, queryEngine, function(filteredBindings){
-            var acum = [];
-            async.eachSeries(filteredBindings, function(filteredBinding,kk) {
-                if(filteredBinding["__nullify__"]!=null) {
-                    nullified.push(filteredBinding);
-                } else {
-                    acum.push(filteredBinding);
+    QueryFilters.preprocessExistentialFilters(filters, bindings, queryEngine, dataset, queryEnv, function(preProcessedFilters){
+        async.eachSeries(preProcessedFilters, function(filter,k){
+            QueryFilters.run(filter.value, bindings, nullifyErrors, dataset, queryEnv, queryEngine, function(filteredBindings){
+                var acum = [];
+                for(var i=0; i<filteredBindings.length; i++) {
+                    var filteredBinding = filteredBindings[i];
+                    if(filteredBinding["__nullify__"]!=null) {
+                        nullified.push(filteredBinding);
+                    } else {
+                        acum.push(filteredBinding);
+                    }
                 }
-                kk();
-            },function(){
                 bindings = acum;
                 k();
-            })
+            });
+        },function(){
+            callback(bindings.concat(nullified));
         });
-    },function(){
-        callback(bindings.concat(nullified))
+    });
+};
+
+QueryFilters.preprocessExistentialFilters = function(filters, bindings, queryEngine, dataset, env ,cb) {
+    var preProcessedFilters = [];
+    async.eachSeries(filters, function(filter, k){
+        if(filter.value.expressionType === 'builtincall' &&
+           (filter.value.builtincall === 'exists' ||
+            filter.value.builtincall === 'notexists')) {
+            var builtincall = filter.value.builtincall;
+            var args = filter.value.args;
+
+            var bindingsResults = {};
+            queryEngine.copyDenormalizedBindings(bindings, env.outCache, function(denormBindings){
+                async.eachSeries(denormBindings, function(bindings, kk) {
+                    var cloned = _.clone(args[0],true);
+                    var ast = queryEngine.abstractQueryTree.parseSelect({pattern:cloned}, bindings);
+                    ast = queryEngine.abstractQueryTree.bind(ast.pattern, bindings);
+                    queryEngine.executeSelectUnit([ {kind:'*'} ], dataset, ast, env, function(result){
+                        var success = null;
+                        if(builtincall === 'exists') {
+                            success = QueryFilters.ebvBoolean(result.length!==0);
+                        } else {
+                            success = QueryFilters.ebvBoolean(result.length===0);
+                        }
+                        var bindingsKey = [];
+                        for(var p in bindings) { bindingsKey.push(JSON.stringify(bindings[p]));}
+                        bindingsKey = bindingsKey.sort().join("");
+                        bindingsResults[bindingsKey] = success;
+                        kk();
+                    });
+                }, function(){
+                    filter.value.origArgs = filter.value.args;
+                    filter.value.args = bindingsResults;
+                    preProcessedFilters.push(filter);
+                    k();
+                });
+            });
+        } else if (filter.value.expressionType === "conditionalor" || filter.value.expressionType === "conditionaland") {
+            var operands = filter.value.operands.map(function(operand){ return {"value": operand}; });
+            QueryFilters.preprocessExistentialFilters(operands, bindings, queryEngine, dataset, env, function(preprocessedOperands){
+                filter.value.operands = preprocessedOperands.map(function(operand){ return operand.value; });
+                preProcessedFilters.push(filter);
+                k();
+            });
+        } else if (filter.value.expressionType === "multiplicativeexpression") {
+            var operands = filter.value.factors.map(function(operand){ return {"value": operand}; });
+            QueryFilters.preprocessExistentialFilters(operands, bindings, queryEngine, dataset, env, function(preprocessedOperands){
+                filter.value.factors = preprocessedOperands.map(function(operand){ return operand.value; });
+                preProcessedFilters.push(filter);
+                k();
+            });
+        } else if (filter.value.expressionType === "additiveexpression") {
+            var operands = filter.value.summands.map(function(operand){ return {"value": operand}; });
+            QueryFilters.preprocessExistentialFilters(operands, bindings, queryEngine, dataset, env, function(preprocessedOperands){
+                filter.value.summands = preprocessedOperands.map(function(operand){ return operand.value; });
+                preProcessedFilters.push(filter);
+                k();
+            });
+        } else if(filter.value.expressionType === "relationalexpression") {
+            var operands = [ {"value": filter.value.op1}, {"value": filter.value.op2}];
+            QueryFilters.preprocessExistentialFilters(operands, bindings, queryEngine, dataset, env, function(preprocessedOperands){
+                filter.value.op1 = preprocessedOperands[0].value;
+                filter.value.op2 = preprocessedOperands[1].value;
+                preProcessedFilters.push(filter);
+                k();
+            });
+        } else if(filter.value.expressionType === "irireforfunction" || filter.value.expressionType === "custom") {
+            var operands = filter.value.args.map(function(operand){ return {"value": operand}; });
+            QueryFilters.preprocessExistentialFilters(operands, bindings, queryEngine, dataset, env, function(preprocessedOperands){
+                filter.value.args = preprocessedOperands.map(function(operand){ return operand.value; });
+                preProcessedFilters.push(filter);
+                k();
+            });
+        } else {
+            preProcessedFilters.push(filter);
+            k();
+        }
+    }, function(){
+        cb(preProcessedFilters);
     });
 };
 
@@ -26998,7 +27098,7 @@ QueryFilters.boundVars = function(filterExpr) {
         } else if(expressionType == 'multiplicativeexpression') {
             var acum = QueryFilters.boundVars(filterExpr.factor);
             for(var i=0; i<filterExpr.factors.length; i++) {
-                acum = acum.concat(QueryFilters.boundVars(filterExpr.factors[i].expression))
+                acum = acum.concat(QueryFilters.boundVars(filterExpr.factors[i].expression));
             }
             return acum;
         } else if(expressionType == 'additiveexpression') {
@@ -27022,8 +27122,6 @@ QueryFilters.boundVars = function(filterExpr) {
             }
         }
     } else {
-        console.log("ERROR");
-        console.log(filterExpr);
         throw("Cannot find bound expressions in a no expression token");
     }
 };
@@ -27250,7 +27348,7 @@ QueryFilters.runFilter = function(filterExpr, bindings, queryEngine, dataset, en
         } else if(expressionType == 'irireforfunction') {
             return QueryFilters.runIriRefOrFunction(filterExpr.iriref, filterExpr.args, bindings, queryEngine, dataset, env);
         } else if(expressionType == 'regex') {
-            return QueryFilters.runRegex(filterExpr.text, filterExpr.pattern, filterExpr.flags, bindings, queryEngine, dataset, env)
+            return QueryFilters.runRegex(filterExpr.text, filterExpr.pattern, filterExpr.flags, bindings, queryEngine, dataset, env);
         } else if(expressionType == 'custom') {
             return QueryFilters.runBuiltInCall(filterExpr.name, filterExpr.args, bindings, queryEngine, dataset, env);
         } else if(expressionType == 'atomic') {
@@ -28157,23 +28255,12 @@ QueryFilters.runDivFunction = function(faca, facb) {
 
 QueryFilters.runBuiltInCall = function(builtincall, args, bindings, queryEngine, dataset, env) {
     if(builtincall === 'notexists' || builtincall === 'exists') {
-        // Run the query in the filter applying bindings
+        // args hast to be the boolean value preprocessed already so we can keep this function sync
+        var bindingsKey = [];
+        for(var p in bindings) { bindingsKey.push(JSON.stringify(bindings[p]));}
+        bindingsKey = bindingsKey.sort().join("");
 
-        var cloned = _.clone(args[0],true);
-        var ast = queryEngine.abstractQueryTree.parseSelect({pattern:cloned}, bindings);
-        ast = queryEngine.abstractQueryTree.bind(ast.pattern, bindings);
-
-        var result = queryEngine.executeSelectUnit([ {kind:'*'} ],
-            dataset,
-            ast,
-            env);
-
-        if(builtincall === 'exists') {
-            return QueryFilters.ebvBoolean(result.length!==0);
-        } else {
-            return QueryFilters.ebvBoolean(result.length===0);
-        }
-
+        return args[bindingsKey];
     }  else {
 
         var ops = [];
@@ -28399,7 +28486,7 @@ QueryFilters.runIriRefOrFunction = function(iriref, args, bindings,queryEngine, 
     } else {
         var ops = [];
         for(var i=0; i<args.length; i++) {
-            ops.push(QueryFilters.runFilter(args[i], bindings, queryEngine, dataset, env))
+            ops.push(QueryFilters.runFilter(args[i], bindings, queryEngine, dataset, env));
         }
 
         var fun = Utils.lexicalFormBaseUri(iriref, env);
@@ -28649,7 +28736,10 @@ QueryFilters.runIriRefOrFunction = function(iriref, args, bindings,queryEngine, 
             } else {
                 return QueryFilters.ebvError();
             }
+        }  else if(queryEngine.customFns[fun] != null) {
+            return queryEngine.customFns[fun](QueryFilters, ops);
         } else {
+
             // unknown function
             return QueryFilters.ebvError();
         }
@@ -29141,7 +29231,9 @@ QueryPlanDPSize.executeBGPDatasets = function(bgp, dataset, queryEngine, queryEn
                     } else {
                         k();
                     }
-                }
+                } else {
+		    k();
+		}
             }, function(){
                 if(acum == null) {
                     callback(null);
