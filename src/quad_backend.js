@@ -1,8 +1,7 @@
 
 // imports
 var QuadIndex = require("./quad_index").QuadIndex;
-var async = require('./utils');
-var _ = require('./utils');
+var utils = require('./utils');
 
 /*
  * "perfect" indices for RDF indexing
@@ -18,44 +17,44 @@ var _ = require('./utils');
  * @return The newly created backend.
  */
 QuadBackend = function (configuration, callback) {
-    if (arguments !== 0) {
-        this.indexMap = {};
-        this.treeOrder = configuration['treeOrder'];
-        this.indices = ['SPOG', 'GP', 'OGS', 'POG', 'GSP', 'OS'];
-        this.componentOrders = {
-            SPOG:['subject', 'predicate', 'object', 'graph'],
-            GP:['graph', 'predicate', 'subject', 'object'],
-            OGS:['object', 'graph', 'subject', 'predicate'],
-            POG:['predicate', 'object', 'graph', 'subject'],
-            GSP:['graph', 'subject', 'predicate', 'object'],
-            OS:['object', 'subject', 'predicate', 'graph']
-        };
-        var that = this;
-        var i = 0;
+    this.indexMap = {};
+    this.treeOrder = configuration['treeOrder'];
+    this.indices = (configuration["index"] || QuadBackend.allIndices);
+    this.componentOrders = QuadBackend.componentOrders;
+    var that = this;
 
-        async.eachSeries(this.indices,function(indexKey,k){
-            new QuadIndex({
-                    order:that.treeOrder,
-                    componentOrder:that.componentOrders[indexKey]
-                },function (tree) {
-                that.indexMap[indexKey] = tree;
-                k();
-            });
-        },function(){
-            callback(that);
+    utils.eachSeries(this.indices,function(indexKey, k){
+        new QuadIndex({
+            order:that.treeOrder,
+            componentOrder:that.componentOrders[indexKey]
+        },function (tree) {
+            that.indexMap[indexKey] = tree;
+            k();
         });
-    }
+    },function(){
+        callback(that);
+    });
+};
+
+QuadBackend.allIndices = ['SPOG', 'GP', 'OGS', 'POG', 'GSP', 'OS'];
+QuadBackend.componentOrders = {
+    SPOG:['subject', 'predicate', 'object', 'graph'],
+    GP:['graph', 'predicate', 'subject', 'object'],
+    OGS:['object', 'graph', 'subject', 'predicate'],
+    POG:['predicate', 'object', 'graph', 'subject'],
+    GSP:['graph', 'subject', 'predicate', 'object'],
+    OS:['object', 'subject', 'predicate', 'graph']
 };
 
 
 QuadBackend.prototype._indexForPattern = function (pattern) {
     var indexKey = pattern.indexKey;
 
-    for (var i = 0; i < this.indices.length; i++) {
-        var index = this.indices[i];
-        var indexComponents = this.componentOrders[index];
+    for (var i = 0; i < QuadBackend.allIndices.length; i++) {
+        var index = QuadBackend.allIndices[i];
+        var indexComponents = QuadBackend.componentOrders[index];
         for (var j = 0; j < indexComponents.length; j++) {
-            if (_.include(indexKey, indexComponents[j]) === false) {
+            if (utils.include(indexKey, indexComponents[j]) === false) {
                 break;
             }
             if (j == indexKey.length - 1) {
@@ -70,58 +69,60 @@ QuadBackend.prototype._indexForPattern = function (pattern) {
 
 QuadBackend.prototype.index = function (quad, callback) {
     var that = this;
-    async.eachSeries(this.indices, function(indexKey,k){
+    utils.eachSeries(this.indices, function (indexKey, k) {
         var index = that.indexMap[indexKey];
-        index.insert(quad, function(){
+        index.insert(quad, function () {
             k();
         })
-    },function(){
-        callback(that);
+    }, function () {
+        callback(true);
     });
 };
 
 QuadBackend.prototype.range = function (pattern, callback) {
     var indexKey = this._indexForPattern(pattern);
     var index = this.indexMap[indexKey];
-    index.range(pattern, function (quads) {
-        callback(quads);
-    });
+    if(index != null) {
+        index.range(pattern, function (quads) {
+            callback(quads);
+        });
+    }
 };
 
 QuadBackend.prototype.search = function (quad, callback) {
     var index = this.indexMap['SPOG'];
-
-    index.search(quad, function (result) {
-        callback(result != null);
-    });
+    if(index != null) {
+        index.search(quad, function (result) {
+            callback(result != null);
+        });
+    }
 };
 
 
 QuadBackend.prototype.delete = function (quad, callback) {
     var that = this;
-
-    async.eachSeries(this.indices, function(indexKey,k){
+    utils.eachSeries(this.indices, function (indexKey, k) {
         var index = that.indexMap[indexKey];
-        index.delete(quad, function(){
+        index.delete(quad, function () {
             k();
-        })
-    },function(){
-        callback(that);
+        });
+    }, function () {
+        callback(true);
     });
 };
 
 QuadBackend.prototype.clear = function(callback) {
     var that = this;
-    async.eachSeries(this.indices,function(indexKey,k){
+    utils.eachSeries(this.indices, function (indexKey, k) {
         new QuadIndex({
-            order:that.treeOrder,
-            componentOrder:that.componentOrders[indexKey]
-        },function (tree) {
+            order: that.treeOrder,
+            componentOrder: that.componentOrders[indexKey]
+        }, function (tree) {
             that.indexMap[indexKey] = tree;
             k();
         });
-    },function(){
-        callback(that);
+    }, function () {
+        callback(true);
     });
 };
 

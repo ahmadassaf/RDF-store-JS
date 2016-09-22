@@ -285,7 +285,6 @@ QueryPlanDPSize.executeBushyTree = function(queryPlan, dataset, queryEngine, env
     }
 };
 
-
 QueryPlanDPSize.executeAndBGPsDPSize = function(allBgps, dataset, queryEngine, env, callback) {
 
     var groups = QueryPlanDPSize.executeAndBGPsGroups(allBgps);
@@ -418,7 +417,6 @@ QueryPlanDPSize.executeAndBGPsDPSize = function(allBgps, dataset, queryEngine, e
         });
     });
 };
-
 
 QueryPlanDPSize.executeEmptyJoinBGP = function(bgp, dataset, queryEngine, queryEnv, callback) {
     return QueryPlanDPSize.executeBGPDatasets(bgp, dataset, queryEngine, queryEnv, callback);

@@ -1,9 +1,9 @@
 // imports
 var QueryEngine = require("./query_engine").QueryEngine;
 var InMemoryQuadBackend = require("./quad_backend").QuadBackend;
-var PersistentBackend = require("./persistent_quad_backend").QuadBackend;
+var PersistentBackend = require("./persistent_quad_backend").PersistentQuadBackend;
 var InMemoryLexicon = require("./lexicon").Lexicon;
-var PersistentLexicon = require("./persistent_lexicon").Lexicon;
+var PersistentLexicon = require("./persistent_lexicon").PersistentLexicon;
 var RDFModel = require("./rdf_model");
 var _ = require("./utils");
 
@@ -30,26 +30,26 @@ Store = function(arg1, arg2) {
     var params   = null;
 
     if(arguments.length == 0) {
-	params ={};
+		params ={};
     } else if(arguments.length == 1) {
-	params   = {};
-	callback = arg1;
+		params   = {};
+		callback = arg1;
     } else if(arguments.length > 1) {
-	params   = arg1;
-	callback = arg2;
+		params   = arg1;
+		callback = arg2;
     } else {
 	throw("An optional argument map and a callback must be provided");
     }
 
     if(params['treeOrder'] == null) {
-	params['treeOrder'] = 15;
+		params['treeOrder'] = 15;
     }
 
     var Lexicon = InMemoryLexicon;
     var QuadBackend = InMemoryQuadBackend;
     if(params['persistent'] === true){
-	Lexicon = PersistentLexicon;
-	QuadBackend = PersistentBackend;
+		Lexicon = PersistentLexicon;
+		QuadBackend = PersistentBackend;
     }
     this.functionMap = {};
 
@@ -58,26 +58,20 @@ Store = function(arg1, arg2) {
     new Lexicon(function(lexicon){
 	var createQuadBackend = function() {
 	    new QuadBackend(params, function (backend) {
-		/*
-		 if(params['overwrite'] === true) {
-		 // delete index values
-		 backend.clear();
-		 }
-		 */
 		var createEngine = function() {
 		    params.backend = backend;
 		    params.lexicon = lexicon;
 		    that.engine = new QueryEngine(params);
 
 		    callback(null, that);
-		}
+		};
 		if(params['overwrite']) {
 		    backend.clear(createEngine)
 		} else {
 		    createEngine();
 		}
 	    });
-	}
+	};
 	if(params['overwrite'] === true) {
 	    // delete lexicon values
 	    lexicon.clear(createQuadBackend);
@@ -856,7 +850,7 @@ Store.prototype.close = function(cb) {
 /**
  * Version of the store
  */
-Store.VERSION = "0.9.15";
+Store.VERSION = "0.9.17";
 
 /**
  * Create a new RDFStore instance that will be
@@ -882,26 +876,15 @@ Store.VERSION = "0.9.15";
  * @param {Function} callback Callback function that will be invoked with an error flag and the connection/store object.
  */
 var connect = function() {
-    var path, args, callback;
+    var callback;
     if(arguments.length == 1) {
-	path = __dirname;
-	args = {};
-	callback = arguments[0];
+		callback = arguments[0];
     } else if(arguments.length == 2) {
-	if(typeof(arguments[0]) === 'string') {
-	    path = arguments[0];
-	    args = {};
+		callback = arguments[1];
 	} else {
-	    path = __dirname+"/index.js";
-	    args = arguments[0];
-	}
-	callback = arguments[1];
-    } else {
-	path = arguments[0];
-	args = arguments[1];
 	callback = arguments[2];
     }
-    callback(new Error("Store#connect is not supported in the 1.x series of the library"));
+    callback(new Error("Store#connect is not supported in the 0.9.X series of the library"));
 };
 
 /**
@@ -934,7 +917,7 @@ var create = function(){
 };
 
 Store.yieldFrequency = function(val) {
-    Utils.yieldFrequency(val);
+    _.yieldFrequency(val);
 };
 
 module.exports.Store = Store;
