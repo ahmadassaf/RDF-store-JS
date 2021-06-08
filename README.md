@@ -114,7 +114,7 @@ This is a list of the different kind of queries currently implemented:
 - FILTER IN / NOT IN operators
 
 
-##Installation
+## Installation
 
 The library can be installed using NPM:
 
@@ -128,7 +128,7 @@ The library can also be installed via bower using a global module:
 $ bower install rdfstore
 ```
 
-##Building
+## Building
 
 Before running the build script, you must install JavaScript dependencies with [npm](https://npmjs.org/doc/install.html) (`npm` is shipped with [node](http://nodejs.org/download/)):
 
